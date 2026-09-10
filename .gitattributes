@@ -1,0 +1,8 @@
+# Auto-detect text files and normalize line endings to LF in repository
+* text=auto
+
+# Source code and web files (LF)
+*.go text eol=lf
+*.md text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
