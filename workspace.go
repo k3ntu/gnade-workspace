@@ -91,4 +91,8 @@ type VersionSnapshot struct {
 	ArchNodesCount int       `json:"arch_nodes_count,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 	IsCurrent      bool      `json:"is_current,omitempty"`
+	// ExportPath es la ruta (relativa al Path del workspace) del archivo JSON con el contenido
+	// real exportado (nodos/aristas/documentos) para este snapshot, versionado con un commit
+	// git real en CommitHash. Vacío en snapshots emitidos antes de que existiera el export real.
+	ExportPath string `json:"export_path,omitempty"`
 }
