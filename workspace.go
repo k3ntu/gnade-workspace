@@ -19,17 +19,18 @@ import (
 // persisting through this type no longer silently drops whichever fields the other app doesn't
 // know about.
 type Manifest struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Code        string            `json:"code"`
-	Version     string            `json:"version"`
-	Description string            `json:"description,omitempty"`
-	Path        string            `json:"path,omitempty"`
-	UpdatedAgo  string            `json:"updatedAgo,omitempty"`
-	Projects    []Project         `json:"projects"`
-	Versions    []VersionSnapshot `json:"versions"`
-	CreatedAt   time.Time         `json:"created_at,omitempty"`
-	DeletedAt   *time.Time        `json:"deleted_at,omitempty"`
+	AgentInstructions string            `json:"agent_instructions,omitempty"`
+	ID                string            `json:"id"`
+	Name              string            `json:"name"`
+	Code              string            `json:"code"`
+	Version           string            `json:"version"`
+	Description       string            `json:"description,omitempty"`
+	Path              string            `json:"path,omitempty"`
+	UpdatedAgo        string            `json:"updatedAgo,omitempty"`
+	Projects          []Project         `json:"projects"`
+	Versions          []VersionSnapshot `json:"versions"`
+	CreatedAt         time.Time         `json:"created_at,omitempty"`
+	DeletedAt         *time.Time        `json:"deleted_at,omitempty"`
 }
 
 // Project describes a project/microservice within a workspace.
