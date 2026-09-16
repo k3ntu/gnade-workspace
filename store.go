@@ -12,6 +12,51 @@ import (
 	"github.com/google/uuid"
 )
 
+// lockStaleAfter is how old a .lock file must be before a new writer assumes its owner
+// crashed/was killed without cleaning up and force-removes it, instead of deadlocking forever.
+const lockStaleAfter = 10 * time.Second
+
+// lockAcquireTimeout is how long a writer retries before giving up entirely.
+const lockAcquireTimeout = 5 * time.Second
+
+// acquireFileLock takes an OS-level advisory lock via the exclusive creation of a sidecar
+// "<file>.lock" file. sync.RWMutex (used elsewhere in this Store) only serializes writers
+// within a single OS process -- it does nothing across two separate processes (e.g.
+// gnadedoc-graph and gnadeboard-kanban) that each hold their own *Store pointed at the same
+// physical workspaces.json. Without this, a burst of near-simultaneous saves from both
+// processes can race: both read the same "before" snapshot, both write back their own
+// modified copy, and whichever write lands last silently discards the other's changes
+// (verified in production: a workspace with 29 registered projects vanished entirely after
+// ~30 rapid ingests, each asynchronously re-triggering a cross-process sync).
+func acquireFileLock(filePath string) (release func(), err error) {
+	lockPath := filePath + ".lock"
+	deadline := time.Now().Add(lockAcquireTimeout)
+	for {
+		f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		if err == nil {
+			fmt.Fprintf(f, "%d", os.Getpid())
+			f.Close()
+			return func() { _ = os.Remove(lockPath) }, nil
+		}
+		if !os.IsExist(err) {
+			// Filesystem doesn't support this lock scheme (unlikely) -- proceed unlocked
+			// rather than blocking writes entirely.
+			return func() {}, nil
+		}
+		if info, statErr := os.Stat(lockPath); statErr == nil && time.Since(info.ModTime()) > lockStaleAfter {
+			// Previous holder almost certainly crashed without releasing it -- a live
+			// holder would have finished its read-modify-write cycle well within this
+			// window. Reclaim rather than deadlock forever.
+			_ = os.Remove(lockPath)
+			continue
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("timed out waiting for workspace store lock at %s", lockPath)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 // Store persists Manifests as a JSON array in a single file, shared across every app that opens
 // the same path (typically ~/.gnade/workspaces.json).
 type Store struct {
@@ -205,6 +250,11 @@ func (s *Store) Get(id string) (*Manifest, error) {
 func (s *Store) Save(ws Manifest) (*Manifest, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	release, err := acquireFileLock(s.filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	all, err := s.readAll()
 	if err != nil {
@@ -334,6 +384,11 @@ func (s *Store) newInitialSnapshot(ws Manifest) VersionSnapshot {
 func (s *Store) AddSnapshot(workspaceID string, snap VersionSnapshot) (*Manifest, *VersionSnapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	release, err := acquireFileLock(s.filePath)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer release()
 
 	all, err := s.readAll()
 	if err != nil {
@@ -383,6 +438,11 @@ func (s *Store) AddSnapshot(workspaceID string, snap VersionSnapshot) (*Manifest
 func (s *Store) MoveToTrash(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	release, err := acquireFileLock(s.filePath)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	all, err := s.readAll()
 	if err != nil {
@@ -407,6 +467,11 @@ func (s *Store) MoveToTrash(id string) error {
 func (s *Store) Restore(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	release, err := acquireFileLock(s.filePath)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	all, err := s.readAll()
 	if err != nil {
@@ -430,6 +495,11 @@ func (s *Store) Restore(id string) error {
 func (s *Store) Purge(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	release, err := acquireFileLock(s.filePath)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	all, err := s.readAll()
 	if err != nil {
@@ -448,6 +518,11 @@ func (s *Store) Purge(id string) error {
 func (s *Store) PurgeAllTrash() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	release, err := acquireFileLock(s.filePath)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	all, err := s.readAll()
 	if err != nil {

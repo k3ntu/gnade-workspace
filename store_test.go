@@ -1,8 +1,10 @@
 package gnadeworkspace
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -330,5 +332,62 @@ func TestStore_PreservesFieldsFromBothApps(t *testing.T) {
 	}
 	if !again.CreatedAt.Equal(createdAt) || again.Projects[0].AgentStatus != "reviewing" {
 		t.Errorf("expected fields to survive a re-save, got %+v", again)
+	}
+}
+
+// TestStore_CrossProcessConcurrentSavesDoNotLoseWorkspaces reproduces a real incident: with
+// two separate *Store instances (simulating gnadedoc-graph and gnadeboard-kanban, two
+// different OS processes that each open the same workspaces.json independently) saving
+// concurrently, a workspace with 29 registered projects vanished entirely after a burst of
+// ~30 near-simultaneous cross-process saves. sync.RWMutex only serializes writers within a
+// single process; acquireFileLock must make the whole read-modify-write cycle atomic across
+// processes too.
+func TestStore_CrossProcessConcurrentSavesDoNotLoseWorkspaces(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workspaces.json")
+
+	storeA, err := NewStore(path)
+	if err != nil {
+		t.Fatalf("failed to open store A: %v", err)
+	}
+	storeB, err := NewStore(path)
+	if err != nil {
+		t.Fatalf("failed to open store B: %v", err)
+	}
+
+	const n = 30
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			store := storeA
+			if i%2 == 1 {
+				store = storeB
+			}
+			id := fmt.Sprintf("ws-%02d", i)
+			if _, err := store.Save(Manifest{ID: id, Name: id}); err != nil {
+				t.Errorf("Save(%s) failed: %v", id, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	final, err := storeA.ListActive()
+	if err != nil {
+		t.Fatalf("ListActive failed: %v", err)
+	}
+	if len(final) != n {
+		seen := make(map[string]bool)
+		for _, ws := range final {
+			seen[ws.ID] = true
+		}
+		var missing []string
+		for i := 0; i < n; i++ {
+			id := fmt.Sprintf("ws-%02d", i)
+			if !seen[id] {
+				missing = append(missing, id)
+			}
+		}
+		t.Fatalf("expected %d workspaces, got %d -- lost under concurrent cross-process writes: %v", n, len(final), missing)
 	}
 }
