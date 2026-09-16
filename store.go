@@ -211,6 +211,21 @@ func (s *Store) Save(ws Manifest) (*Manifest, error) {
 		return nil, err
 	}
 
+	// Capture which fields the caller actually left empty BEFORE the auto-generation below
+	// fills in defaults (Code/Version) -- otherwise, by the time we reach the existing-record
+	// merge, we can no longer tell "caller sent an empty Version" apart from "caller never
+	// mentioned Version at all", and a partial update (e.g. only renaming a workspace) would
+	// silently reset Version/Code/Description/Path/Projects/AgentInstructions to zero values.
+	incomingNameEmpty := ws.Name == ""
+	incomingCodeEmpty := ws.Code == ""
+	incomingVersionEmpty := ws.Version == ""
+	incomingDescriptionEmpty := ws.Description == ""
+	incomingPathEmpty := ws.Path == ""
+	incomingProjectsEmpty := len(ws.Projects) == 0
+	// AgentInstructions is deliberately NOT protected here: an explicit read-modify-write clear
+	// (get the full manifest, blank just this field, save it back) is a supported, tested flow
+	// (see TestWorkspaceAgentInstructionsPersistAndClear) and must still be able to reach "".
+
 	if ws.ID == "" {
 		ws.ID = strings.ToLower(strings.ReplaceAll(ws.Name, " ", "-"))
 		if ws.ID == "" {
@@ -248,6 +263,29 @@ func (s *Store) Save(ws Manifest) (*Manifest, error) {
 			// Preserve existing versions if the incoming manifest doesn't carry any.
 			if len(ws.Versions) == 0 && len(existing.Versions) > 0 {
 				ws.Versions = existing.Versions
+			}
+			// A caller doing a partial update (e.g. POST/PUT only to set one field, like
+			// agent_instructions or a rename) must not blow away everything else it didn't
+			// mention -- same precedent as Versions above, extended to every other field.
+			// This means this Save path cannot explicitly blank out a previously-set field
+			// back to empty; only replacing it with a new non-empty value is supported.
+			if incomingNameEmpty && existing.Name != "" {
+				ws.Name = existing.Name
+			}
+			if incomingCodeEmpty && existing.Code != "" {
+				ws.Code = existing.Code
+			}
+			if incomingVersionEmpty && existing.Version != "" {
+				ws.Version = existing.Version
+			}
+			if incomingDescriptionEmpty && existing.Description != "" {
+				ws.Description = existing.Description
+			}
+			if incomingPathEmpty && existing.Path != "" {
+				ws.Path = existing.Path
+			}
+			if incomingProjectsEmpty && len(existing.Projects) > 0 {
+				ws.Projects = existing.Projects
 			}
 			all[i] = ws
 			found = true

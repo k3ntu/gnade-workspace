@@ -159,6 +159,70 @@ func TestStore_DevSandboxSeeding(t *testing.T) {
 	}
 }
 
+// TestStore_PartialSaveDoesNotWipeExistingFields reproduces a real incident: a caller does
+// Save(Manifest{ID: existingID, Name: existingName, AgentInstructions: "..."}) meaning only to
+// set one field (e.g. via a REST client sending a minimal JSON body) -- Description, Path,
+// Projects and Version must survive untouched, not silently reset to their zero values.
+func TestStore_PartialSaveDoesNotWipeExistingFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workspaces.json")
+	store, err := NewStore(path)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	full := Manifest{
+		ID:          "gnade-suite-live",
+		Name:        "Gnade Suite",
+		Code:        "GS",
+		Version:     "v1.0.0",
+		Description: "Workspace cargado desde D:\\dev\\ai\\gnade-suite",
+		Path:        "D:\\dev\\ai\\gnade-suite",
+		Projects: []Project{
+			{ID: "gnadeboard-kanban", Name: "gnadeboard-kanban", Path: "D:\\Projects\\Gnade\\gnadeboard-kanban"},
+			{ID: "gnadedoc-graph", Name: "gnadedoc-graph", Path: "D:\\Projects\\Gnade\\gnadedoc-graph"},
+		},
+	}
+	if _, err := store.Save(full); err != nil {
+		t.Fatalf("failed to save full manifest: %v", err)
+	}
+
+	partial := Manifest{ID: "gnade-suite-live", Name: "Gnade Suite", AgentInstructions: "prueba"}
+	saved, err := store.Save(partial)
+	if err != nil {
+		t.Fatalf("failed to save partial manifest: %v", err)
+	}
+
+	if saved.AgentInstructions != "prueba" {
+		t.Errorf("expected AgentInstructions to be set, got %q", saved.AgentInstructions)
+	}
+	if saved.Description != full.Description {
+		t.Errorf("Description was wiped: got %q, want %q", saved.Description, full.Description)
+	}
+	if saved.Path != full.Path {
+		t.Errorf("Path was wiped: got %q, want %q", saved.Path, full.Path)
+	}
+	if saved.Version != full.Version {
+		t.Errorf("Version was wiped: got %q, want %q", saved.Version, full.Version)
+	}
+	if len(saved.Projects) != len(full.Projects) {
+		t.Fatalf("Projects were wiped: got %+v, want %+v", saved.Projects, full.Projects)
+	}
+
+	// A follow-up save WITH a real, non-empty value must still be able to actually change a
+	// field -- the fix only protects against accidental blanking, not legitimate updates.
+	renamed := Manifest{ID: "gnade-suite-live", Name: "Gnade Suite", Description: "Nueva descripcion real"}
+	saved, err = store.Save(renamed)
+	if err != nil {
+		t.Fatalf("failed to save renamed manifest: %v", err)
+	}
+	if saved.Description != "Nueva descripcion real" {
+		t.Errorf("expected Description to be updated to the new value, got %q", saved.Description)
+	}
+	if len(saved.Projects) != len(full.Projects) {
+		t.Errorf("Projects should still be preserved on this save too, got %+v", saved.Projects)
+	}
+}
+
 // TestStore_DevSandboxCreatedEmptyWhenNoProdToSeed covers the fresh-machine/fresh-profile case:
 // dev runs (or the user deletes workspaces-dev.json on purpose to see how the app reacts to an
 // empty profile) with NO workspaces.json to seed from either. Must create an empty, valid dev
