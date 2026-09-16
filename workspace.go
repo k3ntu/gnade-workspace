@@ -31,6 +31,11 @@ type Manifest struct {
 	Versions          []VersionSnapshot `json:"versions"`
 	CreatedAt         time.Time         `json:"created_at,omitempty"`
 	DeletedAt         *time.Time        `json:"deleted_at,omitempty"`
+	// TurboReviewMode is a gnadedoc-graph-only setting (kanban never reads or writes it): when
+	// true, a draft forked by ConflictArbiter for this workspace is merged into its authoritative
+	// original immediately instead of waiting in the human review queue. It is still persisted
+	// (not deleted) with a resolution marker, so the auto-approval stays auditable.
+	TurboReviewMode bool `json:"turbo_review_mode,omitempty"`
 }
 
 // Project describes a project/microservice within a workspace.
