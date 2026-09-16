@@ -159,6 +159,46 @@ func TestStore_DevSandboxSeeding(t *testing.T) {
 	}
 }
 
+// TestStore_DevSandboxCreatedEmptyWhenNoProdToSeed covers the fresh-machine/fresh-profile case:
+// dev runs (or the user deletes workspaces-dev.json on purpose to see how the app reacts to an
+// empty profile) with NO workspaces.json to seed from either. Must create an empty, valid dev
+// store instead of erroring or leaving the file missing -- symmetric with what a brand-new
+// release install already does for workspaces.json.
+func TestStore_DevSandboxCreatedEmptyWhenNoProdToSeed(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "ws_sandbox_fresh_test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	devFile := filepath.Join(tmpDir, "workspaces-dev.json")
+	prodFile := filepath.Join(tmpDir, "workspaces.json")
+
+	if _, err := os.Stat(prodFile); !os.IsNotExist(err) {
+		t.Fatalf("expected prodFile to not exist")
+	}
+
+	devStore, err := NewStore(devFile)
+	if err != nil {
+		t.Fatalf("failed to create dev store with nothing to seed from: %v", err)
+	}
+	active, err := devStore.ListActive()
+	if err != nil {
+		t.Fatalf("ListActive on freshly-created dev store failed: %v", err)
+	}
+	if len(active) != 0 {
+		t.Fatalf("expected empty dev store, got %+v", active)
+	}
+	if _, err := os.Stat(devFile); err != nil {
+		t.Fatalf("expected devFile to have been created on disk: %v", err)
+	}
+
+	// Confirm it's a fully usable store afterward, not just an empty file.
+	if _, err := devStore.Save(Manifest{ID: "dev-only", Name: "Dev Only"}); err != nil {
+		t.Fatalf("failed to save into freshly-created dev store: %v", err)
+	}
+}
+
 // TestStore_PreservesFieldsFromBothApps guards the original bug this unification fixes: before
 // sharing one Store/Manifest, gnadedoc-graph's narrower struct (no UI fields, no CreatedAt in
 // kanban's case) could silently drop fields the other app had written when it re-saved a
