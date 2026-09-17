@@ -52,6 +52,16 @@ type Project struct {
 	HasDrafts   bool   `json:"hasDrafts,omitempty"`
 	Initials    string `json:"initials,omitempty"`
 	Desc        string `json:"desc,omitempty"`
+	// DocFolders y DocExcludeFolders son la política de documentación que declara el dueño de
+	// un repositorio (que gnadedoc-graph usa para decidir qué .md de cada proyecto entran al
+	// grafo): rutas relativas que SUMAN carpetas/archivos como documentación y que los SACAN.
+	//
+	// Son campos que solo usa gnadedoc-graph (como TurboReviewMode en Manifest), pero viven en
+	// el tipo compartido por el mismo motivo que el resto: si la otra app re-guarda el
+	// workspace sin conocerlos, los borraría en silencio -- que es exactamente el problema que
+	// este paquete existe para evitar.
+	DocFolders        []string `json:"doc_folders,omitempty"`
+	DocExcludeFolders []string `json:"doc_exclude_folders,omitempty"`
 }
 
 // UnmarshalJSON tolerates both snake_case and camelCase for docs/nodes/tasks counts
